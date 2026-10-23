@@ -96,6 +96,7 @@ foreach(subdir ${scratch_subdirectories})
     # Otherwise we pick all the files in the subdirectory
     # and create a scratch for them automatically
     file(GLOB scratch_sources CONFIGURE_DEPENDS ${subdir}/[^.]*.cc)
-    create_scratch("${scratch_sources}")
+    create_scratch("${scratch_sources}"
+      aomdv.cc)
   endif()
 endforeach()
