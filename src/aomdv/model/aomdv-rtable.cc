@@ -542,6 +542,16 @@ RoutingTable::LookupRoute (Ipv4Address id, RoutingTableEntry & rt)
   NS_LOG_LOGIC ("Route to " << id << " found");
   return true;
 }
+RoutingTableEntry*
+RoutingTable::LookupRoutePtr (Ipv4Address dst)
+{
+  auto it = m_ipv4AddressEntry.find (dst);
+  if (it == m_ipv4AddressEntry.end ())
+    {
+      return nullptr;
+    }
+  return &it->second;
+}
 
 bool
 RoutingTable::LookupValidRoute (Ipv4Address id, RoutingTableEntry & rt)

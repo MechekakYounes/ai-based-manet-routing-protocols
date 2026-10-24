@@ -223,7 +223,7 @@ public:
 
   void rt_dumptable ();
   bool rt_has_active_route ();
-
+  RoutingTableEntry* LookupRoutePtr (Ipv4Address dst);
   bool AddRoute (RoutingTableEntry & r);
   bool DeleteRoute (Ipv4Address dst);
   bool LookupRoute (Ipv4Address dst, RoutingTableEntry & rt);
