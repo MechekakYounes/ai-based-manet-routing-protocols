@@ -1608,8 +1608,10 @@ RoutingProtocol::RecvReply (Ptr<Packet> p, Ipv4Address receiver, Ipv4Address sen
           toDst.SetAdvertisedHopCount (INFINITY2);
           toDst.PathAllDelete ();
           toDst.SetFlag (VALID);
-          forwardPath = toDst.PathInsert (dev, rrepHeader.GetOrigin (), hop, 
-                                          Simulator::Now () + rrepHeader.GetLifeTime (), rrepHeader.GetFirstHop (),
+          // RREP lifetime is a duration; PathInsert adds Simulator::Now() internally.
+          // The next hop is the neighbour that sent this RREP, not the RREQ origin.
+          forwardPath = toDst.PathInsert (dev, sender, hop,
+                                          rrepHeader.GetLifeTime (), rrepHeader.GetFirstHop (),
                                           m_ipv4->GetAddress (m_ipv4->GetInterfaceForAddress (receiver), 0));
           toDst.SetLastHopCount (toDst.PathGetMaxHopCount ());
           m_routingTable.Update (toDst);
@@ -1617,20 +1619,20 @@ RoutingProtocol::RecvReply (Ptr<Packet> p, Ipv4Address receiver, Ipv4Address sen
       else if ((rrepHeader.GetDstSeqno () == toDst.GetSeqNo ()) && (toDst.GetFlag () == VALID)
                && (toDst.GetAdvertisedHopCount () > rrepHeader.GetHopCount ()))
         {
-          if ((forwardPath = toDst.PathLookupDisjoint (rrepHeader.GetOrigin (), rrepHeader.GetFirstHop ())))
+          if ((forwardPath = toDst.PathLookupDisjoint (sender, rrepHeader.GetFirstHop ())))
             {
               if (forwardPath->GetHopCount () == hop)
                 {
-                  forwardPath->SetExpire (std::max (forwardPath->GetExpire (), Simulator::Now () + rrepHeader.GetLifeTime ()));
+                  forwardPath->SetExpire (std::max (forwardPath->GetExpire (), rrepHeader.GetLifeTime ()));
                   m_routingTable.Update (toDst);
                 }
             }
-          else if ((toDst.PathNewDisjoint (rrepHeader.GetOrigin (), rrepHeader.GetFirstHop ()))
+          else if ((toDst.PathNewDisjoint (sender, rrepHeader.GetFirstHop ()))
                    && (toDst.GetNumberofPaths () < AOMDV_MAX_PATHS) 
                    && (hop - toDst.PathGetMinHopCount () <= AOMDV_PRIM_ALT_PATH_LENGTH_DIFF))
             {
-              forwardPath = toDst.PathInsert (dev, rrepHeader.GetOrigin (), hop, 
-                                              Simulator::Now () + rrepHeader.GetLifeTime (), 
+              forwardPath = toDst.PathInsert (dev, sender, hop,
+                                              rrepHeader.GetLifeTime (), 
                                               rrepHeader.GetFirstHop (),
                                               m_ipv4->GetAddress (m_ipv4->GetInterfaceForAddress (receiver), 0));
               toDst.SetLastHopCount (toDst.PathGetMaxHopCount ());
@@ -1648,8 +1650,9 @@ RoutingProtocol::RecvReply (Ptr<Packet> p, Ipv4Address receiver, Ipv4Address sen
     }
   else
     {
-      forwardPath = newEntry.PathInsert (dev, sender, hop, 
-                                         Time (2 * m_netTraversalTime - 2 * hop * m_nodeTraversalTime), 
+      // Keep the route path alive for the lifetime advertised in the RREP.
+      forwardPath = newEntry.PathInsert (dev, sender, hop,
+                                         rrepHeader.GetLifeTime (), 
                                          rrepHeader.GetFirstHop (), 
                                          m_ipv4->GetAddress (m_ipv4->GetInterfaceForAddress (receiver), 0));
       m_routingTable.AddRoute (newEntry);
@@ -1707,7 +1710,7 @@ RoutingProtocol::RecvReply (Ptr<Packet> p, Ipv4Address receiver, Ipv4Address sen
     {
       rrepHeader.SetFirstHop (dstP->GetLastHop ());
     }
-  reversePath->SetExpire (Simulator::Now () + m_activeRouteTimeout);
+  reversePath->SetExpire (m_activeRouteTimeout);
   toDst.SetError (true);
   m_routingTable.Update (toDst);
   m_routingTable.Update (toOrigin);
@@ -1743,7 +1746,7 @@ RoutingProtocol::RecvReply (Ptr<Packet> p, Ipv4Address receiver, Ipv4Address sen
               toDst.SetAdvertisedHopCount (toDst.PathGetMaxHopCount ());
             }
           rrepHeader.SetHopCount (toDst.GetAdvertisedHopCount ());
-          reversePath->SetExpire (Simulator::Now () + m_activeRouteTimeout);  
+          reversePath->SetExpire (m_activeRouteTimeout);  
           toDst.SetError (true);
           m_routingTable.Update (toDst);
           m_routingTable.Update (toOrigin);
