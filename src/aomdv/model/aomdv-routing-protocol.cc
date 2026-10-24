@@ -1692,7 +1692,10 @@ RoutingProtocol::RecvReply (Ptr<Packet> p, Ipv4Address receiver, Ipv4Address sen
 
   RoutingTableEntry toOrigin;
   uint32_t id = rrepHeader.GetRequestID ();
-  b = m_rreqIdCache.GetId (dst, id);
+  // The RREQ cache is keyed by the original requester, which is the RREP origin.
+  // Looking up by dst returns nullptr at intermediate nodes and drops every RREP
+  // when AOMDV_NODE_DISJOINT_PATHS is enabled.
+  b = m_rreqIdCache.GetId (rrepHeader.GetOrigin (), id);
   #ifdef AOMDV_NODE_DISJOINT_PATHS
   if (!m_routingTable.LookupRoute (rrepHeader.GetOrigin (), toOrigin) || (toOrigin.GetFlag () != VALID)
       || (b == nullptr) || (b->count))
