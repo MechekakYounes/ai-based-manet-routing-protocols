@@ -1602,8 +1602,12 @@ RoutingProtocol::RecvReply (Ptr<Packet> p, Ipv4Address receiver, Ipv4Address sen
   RoutingTableEntry toDst;
   if (m_routingTable.LookupRoute (dst, toDst))
     {
-      if ((int32_t (rrepHeader.GetDstSeqno ()) - int32_t (toDst.GetSeqNo ())) > 0)
+      if ((!toDst.GetValidSeqNo ()) ||
+          ((int32_t (rrepHeader.GetDstSeqno ()) - int32_t (toDst.GetSeqNo ())) > 0) ||
+          ((rrepHeader.GetDstSeqno () == toDst.GetSeqNo ()) && (toDst.GetFlag () != VALID)))
         {
+          // A valid RREP can repair an invalid route when its sequence number
+          // is equal to the stored sequence number.
           toDst.SetSeqNo (rrepHeader.GetDstSeqno ());
           toDst.SetAdvertisedHopCount (INFINITY2);
           toDst.PathAllDelete ();
@@ -1614,6 +1618,7 @@ RoutingProtocol::RecvReply (Ptr<Packet> p, Ipv4Address receiver, Ipv4Address sen
                                           rrepHeader.GetLifeTime (), rrepHeader.GetFirstHop (),
                                           m_ipv4->GetAddress (m_ipv4->GetInterfaceForAddress (receiver), 0));
           toDst.SetLastHopCount (toDst.PathGetMaxHopCount ());
+          toDst.SetLifeTime (std::max (toDst.GetLifeTime (), rrepHeader.GetLifeTime ()));
           m_routingTable.Update (toDst);
         }
       else if ((rrepHeader.GetDstSeqno () == toDst.GetSeqNo ()) && (toDst.GetFlag () == VALID)
@@ -1624,6 +1629,7 @@ RoutingProtocol::RecvReply (Ptr<Packet> p, Ipv4Address receiver, Ipv4Address sen
               if (forwardPath->GetHopCount () == hop)
                 {
                   forwardPath->SetExpire (std::max (forwardPath->GetExpire (), rrepHeader.GetLifeTime ()));
+                  toDst.SetLifeTime (std::max (toDst.GetLifeTime (), rrepHeader.GetLifeTime ()));
                   m_routingTable.Update (toDst);
                 }
             }
@@ -1636,6 +1642,7 @@ RoutingProtocol::RecvReply (Ptr<Packet> p, Ipv4Address receiver, Ipv4Address sen
                                               rrepHeader.GetFirstHop (),
                                               m_ipv4->GetAddress (m_ipv4->GetInterfaceForAddress (receiver), 0));
               toDst.SetLastHopCount (toDst.PathGetMaxHopCount ());
+              toDst.SetLifeTime (std::max (toDst.GetLifeTime (), rrepHeader.GetLifeTime ()));
               m_routingTable.Update (toDst);
             }
           else
