@@ -1831,58 +1831,108 @@ RoutingProtocol::ProcessHello (RrepHeader const & rrepHeader, Ipv4Address receiv
     }
 }
 
+
 void
 RoutingProtocol::RecvError (Ptr<Packet> p, Ipv4Address src)
 {
   NS_LOG_FUNCTION (this << " from " << src);
-  RerrHeader rerrHeader;
-  p->RemoveHeader (rerrHeader);
-  std::map<Ipv4Address, uint32_t> dstWithNextHopSrc;
-  std::map<Ipv4Address, uint32_t> unreachable;
-  m_routingTable.GetListOfDestinationWithNextHop (src, dstWithNextHopSrc);
-  std::pair<Ipv4Address, uint32_t> un;
-  while (rerrHeader.RemoveUnDestination (un))
+  RerrHeader receivedHeader;
+  p->RemoveHeader (receivedHeader);
+
+  std::map<Ipv4Address, uint32_t> routesViaSender;
+  m_routingTable.GetListOfDestinationWithNextHop (src, routesViaSender);
+
+  // Only process destinations named by this RERR and routed through its sender.
+  std::map<Ipv4Address, uint32_t> affected;
+  std::pair<Ipv4Address, uint32_t> item;
+  while (receivedHeader.RemoveUnDestination (item))
     {
-      for (auto i = dstWithNextHopSrc.begin (); i != dstWithNextHopSrc.end (); ++i)
+      if (routesViaSender.find (item.first) != routesViaSender.end ())
         {
-          if (i->first == un.first)
-            {
-              unreachable.insert (un);
-            }
+          affected[item.first] = item.second;
         }
     }
 
+  std::map<Ipv4Address, uint32_t> unreachable;
   std::vector<Ipv4Address> precursors;
-  for (auto i = unreachable.begin (); i != unreachable.end ();)
+
+  for (const auto &failure : affected)
     {
-      if (!rerrHeader.AddUnDestination (i->first, i->second))
+      RoutingTableEntry toDst;
+      if (!m_routingTable.LookupRoute (failure.first, toDst))
         {
-          TypeHeader typeHeader (AOMDVTYPE_RERR);
-          Ptr<Packet> packet = Create<Packet> ();
-          packet->AddHeader (rerrHeader);
-          packet->AddHeader (typeHeader);
-          SendRerrMessage (packet, precursors);
-          rerrHeader.Clear ();
+          continue;
+        }
+
+      toDst.PathPurge ();
+      // A newer destination sequence number means all cached paths in this entry
+      // are stale; otherwise only the path through the reporting neighbour failed.
+      const bool newerSequence =
+          !toDst.GetValidSeqNo () ||
+          (static_cast<int32_t> (failure.second) -
+           static_cast<int32_t> (toDst.GetSeqNo ())) > 0;
+
+      if (newerSequence)
+        {
+          toDst.SetSeqNo (failure.second);
+          toDst.SetValidSeqNo (true);
+          toDst.PathAllDelete ();
         }
       else
         {
-          RoutingTableEntry toDst;
-          if (m_routingTable.LookupRoute (i->first, toDst))
-            {
-              toDst.GetPrecursors (precursors);
-            }
+          toDst.PathDelete (src);
+        }
+
+      if (toDst.PathEmpty ())
+        {
+          toDst.SetFlag (INVALID);
+          toDst.SetLifeTime (m_routingTable.GetBadLinkLifetime ());
+          unreachable[failure.first] = toDst.GetSeqNo ();
+          toDst.GetPrecursors (precursors);
+        }
+      else
+        {
+          // Another valid path remains; do not propagate this destination as
+          // unreachable to upstream nodes.
+          toDst.SetFlag (VALID);
+          Time remaining = toDst.PathGetMaxExpirationTime () - Simulator::Now ();
+          toDst.SetLifeTime (std::max (Seconds (0), remaining));
+        }
+
+      m_routingTable.Update (toDst);
+    }
+
+  if (unreachable.empty ())
+    {
+      return;
+    }
+
+  RerrHeader outgoingHeader;
+  for (auto i = unreachable.begin (); i != unreachable.end ();)
+    {
+      if (!outgoingHeader.AddUnDestination (i->first, i->second))
+        {
+          TypeHeader typeHeader (AOMDVTYPE_RERR);
+          Ptr<Packet> packet = Create<Packet> ();
+          packet->AddHeader (outgoingHeader);
+          packet->AddHeader (typeHeader);
+          SendRerrMessage (packet, precursors);
+          outgoingHeader.Clear ();
+        }
+      else
+        {
           ++i;
         }
     }
-  if (rerrHeader.GetDestCount () != 0)
+
+  if (outgoingHeader.GetDestCount () != 0)
     {
       TypeHeader typeHeader (AOMDVTYPE_RERR);
       Ptr<Packet> packet = Create<Packet> ();
-      packet->AddHeader (rerrHeader);
+      packet->AddHeader (outgoingHeader);
       packet->AddHeader (typeHeader);
       SendRerrMessage (packet, precursors);
     }
-  m_routingTable.InvalidateRoutesWithDst (unreachable);
 }
 
 void
@@ -2021,12 +2071,14 @@ RoutingProtocol::SendPacketFromQueue (Ipv4Address dst, Ptr<Ipv4Route> route)
     }
 }
 
+
 void
 RoutingProtocol::SendRerrWhenBreaksLinkToNextHop (Ipv4Address nextHop)
 {
   NS_LOG_FUNCTION (this << nextHop);
   RerrHeader rerrHeader;
   std::vector<Ipv4Address> precursors;
+  std::map<Ipv4Address, uint32_t> affected;
   std::map<Ipv4Address, uint32_t> unreachable;
 
   RoutingTableEntry toNextHop;
@@ -2034,9 +2086,43 @@ RoutingProtocol::SendRerrWhenBreaksLinkToNextHop (Ipv4Address nextHop)
     {
       return;
     }
+
+  // Keep the neighbour's precursors because the neighbour itself is unreachable.
   toNextHop.GetPrecursors (precursors);
-  rerrHeader.AddUnDestination (nextHop, toNextHop.GetSeqNo ());
-  m_routingTable.GetListOfDestinationWithNextHop (nextHop, unreachable);
+  m_routingTable.GetListOfDestinationWithNextHop (nextHop, affected);
+
+  // AOMDV must remove only the failed next-hop path. Preserve a destination route
+  // while at least one non-expired alternate path remains.
+  for (const auto &item : affected)
+    {
+      RoutingTableEntry toDst;
+      if (!m_routingTable.LookupRoute (item.first, toDst))
+        {
+          continue;
+        }
+
+      toDst.PathPurge ();
+      toDst.PathDelete (nextHop);
+
+      if (toDst.PathEmpty ())
+        {
+          toDst.SetFlag (INVALID);
+          toDst.SetLifeTime (m_routingTable.GetBadLinkLifetime ());
+          unreachable[item.first] = toDst.GetSeqNo ();
+          toDst.GetPrecursors (precursors);
+        }
+      else
+        {
+          toDst.SetFlag (VALID);
+          Time remaining = toDst.PathGetMaxExpirationTime () - Simulator::Now ();
+          toDst.SetLifeTime (std::max (Seconds (0), remaining));
+        }
+      m_routingTable.Update (toDst);
+    }
+
+  // Report the broken neighbour as unreachable as well.
+  unreachable[nextHop] = toNextHop.GetSeqNo ();
+
   for (auto i = unreachable.begin (); i != unreachable.end ();)
     {
       if (!rerrHeader.AddUnDestination (i->first, i->second))
@@ -2051,14 +2137,10 @@ RoutingProtocol::SendRerrWhenBreaksLinkToNextHop (Ipv4Address nextHop)
         }
       else
         {
-          RoutingTableEntry toDst;
-          if (m_routingTable.LookupRoute (i->first, toDst))
-            {
-              toDst.GetPrecursors (precursors);
-            }
           ++i;
         }
     }
+
   if (rerrHeader.GetDestCount () != 0)
     {
       TypeHeader typeHeader (AOMDVTYPE_RERR);
@@ -2067,8 +2149,6 @@ RoutingProtocol::SendRerrWhenBreaksLinkToNextHop (Ipv4Address nextHop)
       packet->AddHeader (typeHeader);
       SendRerrMessage (packet, precursors);
     }
-  unreachable.insert (std::make_pair (nextHop, toNextHop.GetSeqNo ()));
-  m_routingTable.InvalidateRoutesWithDst (unreachable);
 }
 
 void
