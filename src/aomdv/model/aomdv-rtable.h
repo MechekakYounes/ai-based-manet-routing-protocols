@@ -31,6 +31,7 @@
 #include <stdint.h>
 #include <cassert>
 #include <map>
+#include <memory>
 #include <sys/types.h>
 #include "ns3/ipv4.h"
 #include "ns3/ipv4-route.h"
@@ -176,7 +177,9 @@ public:
   bool IsError () const { return m_error; }
 
   /// RREP_ACK timer
-  Timer m_ackTimer;
+  Time m_ackTimeout;
+  bool m_ackPending;
+
   //\}
 
   bool operator== (Ipv4Address const dst) const

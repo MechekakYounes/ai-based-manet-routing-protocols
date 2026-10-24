@@ -69,7 +69,7 @@ RoutingTableEntry::Path::Print (Ptr<OutputStreamWrapper> stream, Time::Unit unit
  */
 
 RoutingTableEntry::RoutingTableEntry (Ipv4Address dst, bool vSeqNo, uint32_t seqNo, Time lifetime)
-  : m_ackTimer (Timer::CANCEL_ON_DESTROY),
+  : m_ackTimeout (Time::Max ()), m_ackPending (false),
     m_dst (dst),
     m_validSeqNo (vSeqNo), m_seqNo (seqNo), 
     m_lifeTime (lifetime + Simulator::Now ()), m_flag (VALID), m_reqCount (0), 

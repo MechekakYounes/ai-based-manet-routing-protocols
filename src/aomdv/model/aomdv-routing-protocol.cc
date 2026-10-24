@@ -1108,24 +1108,6 @@ RoutingProtocol::RecvAomdv (Ptr<Socket> socket)
     }
 }
 
-bool
-RoutingProtocol::UpdateRouteLifeTime (Ipv4Address addr, Time lifetime)
-{
-  NS_LOG_FUNCTION (this << addr << lifetime);
-  RoutingTableEntry rt;
-  if (m_routingTable.LookupRoute (addr, rt))
-    {
-      if (rt.GetFlag () == VALID)
-        {
-          NS_LOG_DEBUG ("Updating VALID route");
-          rt.SetRreqCnt (0);
-          rt.SetLifeTime (std::max (lifetime, rt.GetLifeTime ()));
-          m_routingTable.Update (rt);
-          return true;
-        }
-    }
-  return false;
-}
 
 bool
 RoutingProtocol::UpdatePathsLifeTime (Ipv4Address addr, Time lifetime)
@@ -1145,6 +1127,24 @@ RoutingProtocol::UpdatePathsLifeTime (Ipv4Address addr, Time lifetime)
         }
     }
   return false;
+}
+bool
+RoutingProtocol::UpdateRouteLifeTime (Ipv4Address addr, Time lifetime)
+{
+  // Called on every RouteOutput. Must NOT touch path lifetimes — that would
+  // push every path's expiry forward and prevent Purge() from ever removing
+  // stale paths, which leads to unbounded path-list growth.
+  RoutingTableEntry* rt = m_routingTable.LookupRoutePtr (addr);
+  if (rt == nullptr)
+    {
+      return false;
+    }
+  if (rt->GetFlag () != VALID)
+    {
+      return false;
+    }
+  rt->SetLifeTime (std::max (lifetime, rt->GetLifeTime ()));
+  return true;
 }
 
 void
@@ -1516,9 +1516,6 @@ RoutingProtocol::SendReplyByIntermediateNode (RoutingTableEntry & toDst, Routing
       RoutingTableEntry toNextHop;
       if (m_routingTable.LookupRoute (origPath->GetNextHop (), toNextHop))
         {
-          toNextHop.m_ackTimer.SetFunction (&RoutingProtocol::AckTimerExpire, this);
-          toNextHop.m_ackTimer.SetArguments (toNextHop.GetDestination (), m_blackListTimeout);
-          toNextHop.m_ackTimer.SetDelay (m_nextHopWait);
           m_routingTable.Update (toNextHop);
         }
     }
@@ -1779,7 +1776,7 @@ RoutingProtocol::RecvReplyAck (Ipv4Address neighbor)
   RoutingTableEntry rt;
   if (m_routingTable.LookupRoute (neighbor, rt))
     {
-      rt.m_ackTimer.Cancel ();
+
       rt.SetFlag (VALID);
       m_routingTable.Update (rt);
     }

@@ -132,8 +132,9 @@ void
 RequestQueue::Drop (QueueEntry en, std::string reason)
 {
   NS_LOG_LOGIC (reason << en.GetPacket ()->GetUid () << " " << en.GetIpv4Header ().GetDestination ());
-  en.GetErrorCallback () (en.GetPacket (), en.GetIpv4Header (),
-                          Socket::ERROR_NOROUTETOHOST);
+  // Do not call the error callback here: it makes the IP layer send an ICMP
+  // "no route" packet, which loops back into this queue and is dropped again
+  // whenever the queue is full.
 }
 
 } // namespace aomdv
