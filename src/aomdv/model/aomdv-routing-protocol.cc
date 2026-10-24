@@ -642,7 +642,7 @@ RoutingProtocol::NotifyInterfaceUp (uint32_t i)
   socket->Bind (InetSocketAddress (Ipv4Address::GetAny (), AOMDV_PORT));
   socket->BindToNetDevice (l3->GetNetDevice (i));
   socket->SetAllowBroadcast (true);
-  socket->SetAttribute ("IpTtl", UintegerValue (1));
+  // Keep the default IP TTL for multi-hop unicast RREPs/RERRs; RREQ per-packet TTL is tagged.
   m_socketAddresses.insert (std::make_pair (socket, iface));
 
   // create also a subnet broadcast socket
@@ -818,7 +818,7 @@ RoutingProtocol::NotifyRemoveAddress (uint32_t i, Ipv4InterfaceAddress address)
           s1->Bind (InetSocketAddress (iface.GetLocal (), AOMDV_PORT));
           s1->BindToNetDevice (l3->GetNetDevice (i));
           s1->SetAllowBroadcast (true);
-          s1->SetAttribute ("IpTtl", UintegerValue (1));
+          // Keep the default IP TTL for multi-hop unicast RREPs/RERRs.
           m_socketAddresses.insert (std::make_pair (s1, iface));
 
           // create also a unicast socket
@@ -1018,8 +1018,8 @@ RoutingProtocol::SendRequest (Ipv4Address dst)
 void
 RoutingProtocol::SendTo (Ptr<Socket> socket, Ptr<Packet> packet, Ipv4Address destination)
 {
-  SocketIpTtlTag tag;
-  packet->RemovePacketTag(tag);
+  // Preserve SocketIpTtlTag: callers (notably SendRequest) use it to set
+  // the per-packet IP TTL. Removing the tag forces the socket's default TTL.
   socket->SendTo (packet, 0, InetSocketAddress (destination, AOMDV_PORT));
 }
 
