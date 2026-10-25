@@ -25,4 +25,6 @@ build_lib(
     LIBRARIES_TO_LINK
         ${libinternet}
         ${libwifi}
+
 )
+target_compile_definitions(aomdv PUBLIC AOMDV_LINK_DISJOINT_PATHS)

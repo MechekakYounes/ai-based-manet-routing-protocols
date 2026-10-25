@@ -15,10 +15,8 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  *
- * Authors: Elena Buchatskaia <borovkovaes@iitp.ru>
- *          Pavel Boyko <boyko@iitp.ru>
+ * Authors: Pavel Boyko <boyko@iitp.ru>, written after OlsrHelper by Mathieu Lacage <mathieu.lacage@sophia.inria.fr>
  */
-
 #include "aomdv-helper.h"
 #include "ns3/aomdv-routing-protocol.h"
 #include "ns3/node-list.h"
@@ -29,19 +27,19 @@
 namespace ns3
 {
 
-AomdvHelper::AomdvHelper ()
-  : Ipv4RoutingHelper ()
+AomdvHelper::AomdvHelper() : 
+  Ipv4RoutingHelper ()
 {
   m_agentFactory.SetTypeId ("ns3::aomdv::RoutingProtocol");
 }
 
-AomdvHelper*
-AomdvHelper::Copy () const
+AomdvHelper* 
+AomdvHelper::Copy (void) const 
 {
-  return new AomdvHelper (*this);
+  return new AomdvHelper (*this); 
 }
 
-Ptr<Ipv4RoutingProtocol>
+Ptr<Ipv4RoutingProtocol> 
 AomdvHelper::Create (Ptr<Node> node) const
 {
   Ptr<aomdv::RoutingProtocol> agent = m_agentFactory.Create<aomdv::RoutingProtocol> ();
@@ -49,7 +47,7 @@ AomdvHelper::Create (Ptr<Node> node) const
   return agent;
 }
 
-void
+void 
 AomdvHelper::Set (std::string name, const AttributeValue &value)
 {
   m_agentFactory.Set (name, value);
@@ -60,7 +58,7 @@ AomdvHelper::AssignStreams (NodeContainer c, int64_t stream)
 {
   int64_t currentStream = stream;
   Ptr<Node> node;
-  for (auto i = c.Begin (); i != c.End (); ++i)
+  for (NodeContainer::Iterator i = c.Begin (); i != c.End (); ++i)
     {
       node = (*i);
       Ptr<Ipv4> ipv4 = node->GetObject<Ipv4> ();
@@ -80,9 +78,9 @@ AomdvHelper::AssignStreams (NodeContainer c, int64_t stream)
           int16_t priority;
           Ptr<Ipv4RoutingProtocol> listProto;
           Ptr<aomdv::RoutingProtocol> listAomdv;
-          for (uint32_t j = 0; j < list->GetNRoutingProtocols (); j++)
+          for (uint32_t i = 0; i < list->GetNRoutingProtocols (); i++)
             {
-              listProto = list->GetRoutingProtocol (j, priority);
+              listProto = list->GetRoutingProtocol (i, priority);
               listAomdv = DynamicCast<aomdv::RoutingProtocol> (listProto);
               if (listAomdv)
                 {
@@ -95,5 +93,4 @@ AomdvHelper::AssignStreams (NodeContainer c, int64_t stream)
   return (currentStream - stream);
 }
 
-} // namespace ns3
-
+}

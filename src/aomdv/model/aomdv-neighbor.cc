@@ -28,18 +28,16 @@
 
 #include "aomdv-neighbor.h"
 #include "ns3/log.h"
-#include "ns3/wifi-mac-header.h"
 #include <algorithm>
-
-namespace ns3
-{
 
 NS_LOG_COMPONENT_DEFINE ("AomdvNeighbors");
 
+namespace ns3
+{
 namespace aomdv
 {
-Neighbors::Neighbors (Time delay)
-  : m_ntimer (Timer::CANCEL_ON_DESTROY)
+Neighbors::Neighbors (Time delay) : 
+  m_ntimer (Timer::CANCEL_ON_DESTROY)
 {
   m_ntimer.SetDelay (delay);
   m_ntimer.SetFunction (&Neighbors::Purge, this);
@@ -50,12 +48,11 @@ bool
 Neighbors::IsNeighbor (Ipv4Address addr)
 {
   Purge ();
-  for (auto i = m_nb.begin (); i != m_nb.end (); ++i)
+  for (std::vector<Neighbor>::const_iterator i = m_nb.begin ();
+       i != m_nb.end (); ++i)
     {
       if (i->m_neighborAddress == addr)
-        {
-          return true;
-        }
+        return true;
     }
   return false;
 }
@@ -64,12 +61,11 @@ Time
 Neighbors::GetExpireTime (Ipv4Address addr)
 {
   Purge ();
-  for (auto i = m_nb.begin (); i != m_nb.end (); ++i)
+  for (std::vector<Neighbor>::const_iterator i = m_nb.begin (); i
+       != m_nb.end (); ++i)
     {
       if (i->m_neighborAddress == addr)
-        {
-          return (i->m_expireTime - Simulator::Now ());
-        }
+        return (i->m_expireTime - Simulator::Now ());
     }
   return Seconds (0);
 }
@@ -77,18 +73,15 @@ Neighbors::GetExpireTime (Ipv4Address addr)
 void
 Neighbors::Update (Ipv4Address addr, Time expire)
 {
-  for (auto i = m_nb.begin (); i != m_nb.end (); ++i)
-    {
-      if (i->m_neighborAddress == addr)
-        {
-          i->m_expireTime = std::max (expire + Simulator::Now (), i->m_expireTime);
-          if (i->m_hardwareAddress == Mac48Address ())
-            {
-              i->m_hardwareAddress = LookupMacAddress (i->m_neighborAddress);
-            }
-          return;
-        }
-    }
+  for (std::vector<Neighbor>::iterator i = m_nb.begin (); i != m_nb.end (); ++i)
+    if (i->m_neighborAddress == addr)
+      {
+        i->m_expireTime
+          = std::max (expire + Simulator::Now (), i->m_expireTime);
+        if (i->m_hardwareAddress == Mac48Address ())
+          i->m_hardwareAddress = LookupMacAddress (i->m_neighborAddress);
+        return;
+      }
 
   NS_LOG_LOGIC ("Open link to " << addr);
   Neighbor neighbor (addr, LookupMacAddress (addr), expire + Simulator::Now ());
@@ -98,7 +91,7 @@ Neighbors::Update (Ipv4Address addr, Time expire)
 
 struct CloseNeighbor
 {
-  bool operator() (const Neighbors::Neighbor &nb) const
+  bool operator() (const Neighbors::Neighbor & nb) const
   {
     return ((nb.m_expireTime < Simulator::Now ()) || nb.close);
   }
@@ -108,14 +101,12 @@ void
 Neighbors::Purge ()
 {
   if (m_nb.empty ())
-    {
-      return;
-    }
+    return;
 
   CloseNeighbor pred;
   if (!m_handleLinkFailure.IsNull ())
     {
-      for (auto j = m_nb.begin (); j != m_nb.end (); ++j)
+      for (std::vector<Neighbor>::iterator j = m_nb.begin (); j != m_nb.end (); ++j)
         {
           if (pred (*j))
             {
@@ -152,10 +143,11 @@ Mac48Address
 Neighbors::LookupMacAddress (Ipv4Address addr)
 {
   Mac48Address hwaddr;
-  for (auto i = m_arp.begin (); i != m_arp.end (); ++i)
+  for (std::vector<Ptr<ArpCache> >::const_iterator i = m_arp.begin ();
+       i != m_arp.end (); ++i)
     {
-      ArpCache::Entry *entry = (*i)->Lookup (addr);
-      if (entry != nullptr && (entry->IsAlive () || entry->IsPermanent ()) && !entry->IsExpired ())
+      ArpCache::Entry * entry = (*i)->Lookup (addr);
+      if (entry != 0 && entry->IsAlive () && !entry->IsExpired ())
         {
           hwaddr = Mac48Address::ConvertFrom (entry->GetMacAddress ());
           break;
@@ -165,19 +157,17 @@ Neighbors::LookupMacAddress (Ipv4Address addr)
 }
 
 void
-Neighbors::ProcessTxError (const WifiMacHeader &hdr)
+Neighbors::ProcessTxError (WifiMacHeader const & hdr)
 {
   Mac48Address addr = hdr.GetAddr1 ();
 
-  for (auto i = m_nb.begin (); i != m_nb.end (); ++i)
+  for (std::vector<Neighbor>::iterator i = m_nb.begin (); i != m_nb.end (); ++i)
     {
       if (i->m_hardwareAddress == addr)
-        {
-          i->close = true;
-        }
+        i->close = true;
     }
   Purge ();
 }
+}
+}
 
-} // namespace aomdv
-} // namespace ns3

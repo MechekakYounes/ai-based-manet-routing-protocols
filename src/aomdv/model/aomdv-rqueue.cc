@@ -19,11 +19,11 @@
  *      NS-2 AOMDV model developed by the CMU/MONARCH group and optimized and
  *      tuned by Samir Das and Mahesh Marina, University of Cincinnati;
  *
- * Authors: Elena Buchatskaia <borovkovaes@iitp.ru>
- *          Pavel Boyko <boyko@iitp.ru>
+ * Authors: 
  */
 #include "aomdv-rqueue.h"
 #include <algorithm>
+#include <functional>
 #include "ns3/ipv4-route.h"
 #include "ns3/socket.h"
 #include "ns3/log.h"
@@ -46,14 +46,13 @@ bool
 RequestQueue::Enqueue (QueueEntry & entry)
 {
   Purge ();
-  for (auto i = m_queue.begin (); i != m_queue.end (); ++i)
+  for (std::vector<QueueEntry>::const_iterator i = m_queue.begin (); i
+       != m_queue.end (); ++i)
     {
       if ((i->GetPacket ()->GetUid () == entry.GetPacket ()->GetUid ())
           && (i->GetIpv4Header ().GetDestination ()
               == entry.GetIpv4Header ().GetDestination ()))
-        {
-          return false;
-        }
+        return false;
     }
   entry.SetExpireTime (m_queueTimeout);
   if (m_queue.size () == m_maxLen)
@@ -70,24 +69,23 @@ RequestQueue::DropPacketWithDst (Ipv4Address dst)
 {
   NS_LOG_FUNCTION (this << dst);
   Purge ();
-  for (auto i = m_queue.begin (); i != m_queue.end (); ++i)
+  for (std::vector<QueueEntry>::iterator i = m_queue.begin (); i
+       != m_queue.end (); ++i)
     {
-      if (i->GetIpv4Header ().GetDestination () == dst)
+      if (IsEqual (*i, dst))
         {
           Drop (*i, "DropPacketWithDst ");
         }
     }
-  auto new_end = std::remove_if (m_queue.begin (), m_queue.end (), [&](const QueueEntry &en) {
-    return en.GetIpv4Header ().GetDestination () == dst;
-  });
-  m_queue.erase (new_end, m_queue.end ());
+  m_queue.erase (std::remove_if (m_queue.begin (), m_queue.end (),
+                                 std::bind2nd (std::ptr_fun (RequestQueue::IsEqual), dst)), m_queue.end ());
 }
 
 bool
 RequestQueue::Dequeue (Ipv4Address dst, QueueEntry & entry)
 {
   Purge ();
-  for (auto i = m_queue.begin (); i != m_queue.end (); ++i)
+  for (std::vector<QueueEntry>::iterator i = m_queue.begin (); i != m_queue.end (); ++i)
     {
       if (i->GetIpv4Header ().GetDestination () == dst)
         {
@@ -102,40 +100,48 @@ RequestQueue::Dequeue (Ipv4Address dst, QueueEntry & entry)
 bool
 RequestQueue::Find (Ipv4Address dst)
 {
-  for (auto i = m_queue.begin (); i != m_queue.end (); ++i)
+  for (std::vector<QueueEntry>::const_iterator i = m_queue.begin (); i
+       != m_queue.end (); ++i)
     {
       if (i->GetIpv4Header ().GetDestination () == dst)
-        {
-          return true;
-        }
+        return true;
     }
   return false;
 }
 
+struct IsExpired
+{
+  bool
+  operator() (QueueEntry const & e) const
+  {
+    return (e.GetExpireTime () < Seconds (0));
+  }
+};
+
 void
 RequestQueue::Purge ()
 {
-  for (auto i = m_queue.begin (); i != m_queue.end (); ++i)
+  IsExpired pred;
+  for (std::vector<QueueEntry>::iterator i = m_queue.begin (); i
+       != m_queue.end (); ++i)
     {
-      if (i->GetExpireTime () < Seconds (0))
+      if (pred (*i))
         {
           Drop (*i, "Drop outdated packet ");
         }
     }
-  auto new_end = std::remove_if (m_queue.begin (), m_queue.end (), [](const QueueEntry &en) {
-    return en.GetExpireTime () < Seconds (0);
-  });
-  m_queue.erase (new_end, m_queue.end ());
+  m_queue.erase (std::remove_if (m_queue.begin (), m_queue.end (), pred),
+                 m_queue.end ());
 }
 
 void
 RequestQueue::Drop (QueueEntry en, std::string reason)
 {
   NS_LOG_LOGIC (reason << en.GetPacket ()->GetUid () << " " << en.GetIpv4Header ().GetDestination ());
-  // Do not call the error callback here: it makes the IP layer send an ICMP
-  // "no route" packet, which loops back into this queue and is dropped again
-  // whenever the queue is full.
+  en.GetErrorCallback () (en.GetPacket (), en.GetIpv4Header (),
+                          Socket::ERROR_NOROUTETOHOST);
+  return;
 }
 
-} // namespace aomdv
-} // namespace ns3
+}
+}

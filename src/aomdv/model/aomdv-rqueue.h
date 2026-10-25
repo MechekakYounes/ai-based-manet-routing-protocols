@@ -15,8 +15,7 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  *
- * Authors: Elena Buchatskaia <borovkovaes@iitp.ru>
- *          Pavel Boyko <boyko@iitp.ru>
+ * Authors: 
  */
 #ifndef AOMDV_RQUEUE_H
 #define AOMDV_RQUEUE_H
@@ -24,6 +23,7 @@
 #include <vector>
 #include "ns3/ipv4-routing-protocol.h"
 #include "ns3/simulator.h"
+
 
 namespace ns3 {
 namespace aomdv {
@@ -37,15 +37,18 @@ class QueueEntry
 public:
   typedef Ipv4RoutingProtocol::UnicastForwardCallback UnicastForwardCallback;
   typedef Ipv4RoutingProtocol::ErrorCallback ErrorCallback;
-
-  QueueEntry (Ptr<const Packet> pa = nullptr, Ipv4Header const & h = Ipv4Header (),
+  /// c-tor
+  QueueEntry (Ptr<const Packet> pa = 0, Ipv4Header const & h = Ipv4Header (),
               UnicastForwardCallback ucb = UnicastForwardCallback (),
               ErrorCallback ecb = ErrorCallback (), Time exp = Simulator::Now ()) :
     m_packet (pa), m_header (h), m_ucb (ucb), m_ecb (ecb),
     m_expire (exp + Simulator::Now ())
-  {
-  }
+  {}
 
+  /**
+   * Compare queue entries
+   * \return true if equal
+   */
   bool operator== (QueueEntry const & o) const
   {
     return ((m_packet == o.m_packet) && (m_header.GetDestination () == o.m_header.GetDestination ()) && (m_expire == o.m_expire));
@@ -64,6 +67,8 @@ public:
   Time GetExpireTime () const { return m_expire - Simulator::Now (); }
 
 private:
+  
+  /// Data packet
   Ptr<const Packet> m_packet;
   /// IP header
   Ipv4Header m_header;
@@ -74,7 +79,6 @@ private:
   /// Expire time for queue entry
   Time m_expire;
 };
-
 /**
  * \ingroup aomdv
  * \brief AOMDV route request queue
@@ -107,6 +111,7 @@ public:
   void SetQueueTimeout (Time t) { m_queueTimeout = t; }
 
 private:
+  
   std::vector<QueueEntry> m_queue;
   /// Remove all expired entries
   void Purge ();
@@ -116,9 +121,11 @@ private:
   uint32_t m_maxLen;
   /// The maximum period of time that a routing protocol is allowed to buffer a packet for, seconds.
   Time m_queueTimeout;
+  static bool IsEqual (QueueEntry en, const Ipv4Address dst) { return (en.GetIpv4Header ().GetDestination () == dst); }
 };
 
-} // namespace aomdv
-} // namespace ns3
+
+}
+}
 
 #endif /* AOMDV_RQUEUE_H */

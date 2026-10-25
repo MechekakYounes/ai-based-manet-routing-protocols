@@ -11,7 +11,7 @@ def build(bld):
         'model/aomdv-packet.cc',
         'model/aomdv-neighbor.cc',
         'model/aomdv-routing-protocol.cc',
-        #'helper/aomdv-helper.cc', 
+        'helper/aomdv-helper.cc', 
         ]
 
     #aomdv_test = bld.create_ns3_module_test_library('aomdv')
@@ -33,7 +33,7 @@ def build(bld):
         'model/aomdv-packet.h',
         'model/aomdv-neighbor.h',
         'model/aomdv-routing-protocol.h',
-        #'helper/aomdv-helper.h',
+        'helper/aomdv-helper.h',
         ]
 
     #if bld.env['ENABLE_EXAMPLES']:
