@@ -9,7 +9,9 @@
 #include <map>
 #include <utility>
 #include <vector>
-
+namespace ns3 { namespace aomdv {
+    double EnergyFractionOfAddress (Ipv4Address addr);   // declaration only
+}}
 namespace ns3
 {
 namespace aomdv

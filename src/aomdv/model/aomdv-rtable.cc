@@ -2,6 +2,12 @@
 
 #include "ns3/log.h"
 #include "ns3/simulator.h"
+#include "ns3/ptr.h"   // for Ptr<>
+#include "ns3/node.h"           
+#include "ns3/node-list.h"      
+#include "ns3/ipv4.h"           
+#include "ns3/ipv4-address.h"     
+#include "ns3/energy-source.h"
 
 namespace ns3
 {
@@ -67,9 +73,30 @@ RoutingTableEntry::AddPath(Ipv4Address nextHop, uint32_t hopCount, Time expire)
     }
     return true;
 }
-
-bool
-RoutingTableEntry::GetBestPath(AomdvPath& best) const
+static double EnergyFractionOfAddress (Ipv4Address addr)
+{
+    // Resolve IPv4 -> Node. NodeList scan; costly, but works without
+    // any map. Cache it if you use this in a long simulation.
+    Ptr<Node> node = nullptr;
+    for (uint32_t i = 0; i < NodeList::GetNNodes(); ++i)
+    {
+        Ptr<Node> n    = NodeList::GetNode(i);
+        Ptr<Ipv4> ipv4 = n->GetObject<Ipv4>();
+        if (!ipv4) continue;
+        for (uint32_t j = 0; j < ipv4->GetNInterfaces(); ++j)
+            for (uint32_t k = 0; k < ipv4->GetNAddresses(j); ++k)
+                if (ipv4->GetAddress(j, k).GetLocal() == addr)
+                {
+                    node = n; goto done;
+                }
+    }
+    done:
+    if (!node) return 1.0;                          // unknown -> don't penalize
+    Ptr<EnergySource> src = node->GetObject<EnergySource>();
+    return src ? src->GetEnergyFraction() : 1.0;   // in [0,1]
+}
+/*
+bool RoutingTableEntry::GetBestPath(AomdvPath& best) const
 {
     bool found = false;
     for (const auto& p : m_paths)
@@ -87,6 +114,29 @@ RoutingTableEntry::GetBestPath(AomdvPath& best) const
     }
     return found;
 }
+*/
+bool RoutingTableEntry::GetBestPath (AomdvPath& best) const
+{
+    bool   found = false;
+    for (const auto& p : m_paths)
+    {
+        if (!p.valid || Simulator::Now() >= p.expireTime)
+            continue;
+
+        double energy = std::numeric_limits<double>::max();
+        for (const auto& hop : p.hops)
+            energy = std::min(energy, EnergyFractionOfAddress(hop));
+
+        if (!found || energy > best.minEnergyFraction)   // reuse field for the metric
+        {
+            best = p;
+            best.minEnergyFraction = energy;             // record for next comparison
+            found = true;
+        }
+    }
+    return found;
+}
+
 
 std::list<AomdvPath>
 RoutingTableEntry::GetAllPaths() const
