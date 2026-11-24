@@ -15,4 +15,5 @@ build_lib(
     ${libwifi}
     ${libnetwork}
     ${libcore}
+    ${libenergy} 
 )

@@ -251,7 +251,7 @@ RoutingProtocol::ProcessRrep(RrepHeader rrepHeader, Ipv4Address receiver, Ipv4Ad
     }
 
     Time expire = Simulator::Now() + rrepHeader.GetLifeTime();
-    toDst.AddPath(src, rrepHeader.GetHopCount(), expire);
+    toDst.AddPath(src, rrepHeader.GetHopCount(), expire,rrepHeader.GetHopList()); // Add the path list to the routing table entry
 
     if (found)
     {
@@ -462,7 +462,7 @@ RoutingProtocol::RecvAomdv(Ptr<Socket> socket)
             oneHop.SetSeqNo(hello.GetDstSeqNo());
         }
 
-        oneHop.AddPath(src, 1, Simulator::Now() + hello.GetLifeTime());
+        oneHop.AddPath(src, 1, Simulator::Now() + hello.GetLifeTime(), hello.GetHopList());
         if (found)
         {
             m_routingTable.Update(oneHop);

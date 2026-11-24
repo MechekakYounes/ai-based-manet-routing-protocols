@@ -80,6 +80,7 @@ class RreqHeader : public Header
     Ipv4Address m_origin;
     uint32_t m_originSeqNo;
     uint32_t m_hopCount;
+
 };
 
 class RrepHeader : public Header
@@ -100,6 +101,9 @@ class RrepHeader : public Header
     void SetHopCount(uint32_t h);
     void IncrementHopCount();
     void SetLifeTime(Time t);
+    void AddHop (Ipv4Address a);
+    const std::vector<Ipv4Address>& GetHopList () const;
+
 
     void AddPathNode(Ipv4Address a);
 
@@ -117,6 +121,7 @@ class RrepHeader : public Header
     uint32_t m_hopCount;
     Time m_lifeTime;
     std::vector<Ipv4Address> m_pathList; // for multipath implementation
+    std::vector<Ipv4Address> m_hopList;
 };
 
 class RerrHeader : public Header

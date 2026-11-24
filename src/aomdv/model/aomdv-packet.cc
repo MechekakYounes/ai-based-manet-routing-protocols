@@ -4,6 +4,8 @@
 #include "ns3/log.h"
 #include "ns3/packet.h"
 #include "ns3/type-id.h"
+#include "ns3/ipv4-address.h"
+#include <vector>
 
 namespace ns3
 {
@@ -15,6 +17,11 @@ NS_OBJECT_ENSURE_REGISTERED(TypeHeader);
 NS_OBJECT_ENSURE_REGISTERED(RreqHeader);
 NS_OBJECT_ENSURE_REGISTERED(RrepHeader);
 NS_OBJECT_ENSURE_REGISTERED(RerrHeader);
+
+// ===========================================================================
+// TypeHeader — 1-byte header identifying the message type.
+// Do NOT put hop-list logic here; it does not belong.
+// ===========================================================================
 
 TypeHeader::TypeHeader(MessageType t)
     : m_type(t),
@@ -78,21 +85,11 @@ TypeHeader::Print(std::ostream& os) const
 {
     switch (m_type)
     {
-    case AOMDVTYPE_RREQ:
-        os << "RREQ";
-        break;
-    case AOMDVTYPE_RREP:
-        os << "RREP";
-        break;
-    case AOMDVTYPE_RERR:
-        os << "RERR";
-        break;
-    case AOMDVTYPE_HELLO:
-        os << "HELLO";
-        break;
-    default:
-        os << "UNKNOWN";
-        break;
+    case AOMDVTYPE_RREQ:  os << "RREQ";    break;
+    case AOMDVTYPE_RREP:  os << "RREP";    break;
+    case AOMDVTYPE_RERR:  os << "RERR";    break;
+    case AOMDVTYPE_HELLO: os << "HELLO";   break;
+    default:              os << "UNKNOWN"; break;
     }
 }
 
@@ -121,6 +118,10 @@ operator<<(std::ostream& os, const TypeHeader& h)
     return os;
 }
 
+// ===========================================================================
+// RreqHeader
+// ===========================================================================
+
 RreqHeader::RreqHeader()
     : m_requestID(0),
       m_dst(),
@@ -128,6 +129,7 @@ RreqHeader::RreqHeader()
       m_origin(),
       m_originSeqNo(0),
       m_hopCount(0)
+      // NOTE: RreqHeader has no m_hopList — do not initialize one.
 {
 }
 
@@ -151,7 +153,8 @@ void
 RreqHeader::Print(std::ostream& os) const
 {
     os << "RREQ id=" << m_requestID << " dst=" << m_dst << " dstSeq=" << m_dstSeqNo
-       << " origin=" << m_origin << " originSeq=" << m_originSeqNo << " hops=" << m_hopCount;
+       << " origin=" << m_origin << " originSeq=" << m_originSeqNo
+       << " hops=" << m_hopCount;
 }
 
 uint32_t
@@ -179,92 +182,33 @@ RreqHeader::Deserialize(Buffer::Iterator start)
     auto i = start;
     i.ReadU8();
     i.ReadU8();
-    m_hopCount = i.ReadNtohU16();
-    m_requestID = i.ReadNtohU32();
+    m_hopCount   = i.ReadNtohU16();
+    m_requestID  = i.ReadNtohU32();
     ReadFrom(i, m_dst);
-    m_dstSeqNo = i.ReadNtohU32();
+    m_dstSeqNo   = i.ReadNtohU32();
     ReadFrom(i, m_origin);
     m_originSeqNo = i.ReadNtohU32();
     return i.GetDistanceFrom(start);
 }
 
-void
-RreqHeader::SetDst(Ipv4Address a)
-{
-    m_dst = a;
-}
+void RreqHeader::SetDst(Ipv4Address a)          { m_dst = a; }
+void RreqHeader::SetOrigin(Ipv4Address a)       { m_origin = a; }
+void RreqHeader::SetId(uint32_t id)             { m_requestID = id; }
+void RreqHeader::SetDstSeqNo(uint32_t s)        { m_dstSeqNo = s; }
+void RreqHeader::SetOriginSeqNo(uint32_t s)     { m_originSeqNo = s; }
+void RreqHeader::SetHopCount(uint32_t h)        { m_hopCount = h; }
+void RreqHeader::IncrementHopCount()            { m_hopCount++; }
 
-void
-RreqHeader::SetOrigin(Ipv4Address a)
-{
-    m_origin = a;
-}
+Ipv4Address RreqHeader::GetDst() const          { return m_dst; }
+Ipv4Address RreqHeader::GetOrigin() const       { return m_origin; }
+uint32_t    RreqHeader::GetId() const           { return m_requestID; }
+uint32_t    RreqHeader::GetDstSeqNo() const     { return m_dstSeqNo; }
+uint32_t    RreqHeader::GetOriginSeqNo() const  { return m_originSeqNo; }
+uint32_t    RreqHeader::GetHopCount() const     { return m_hopCount; }
 
-void
-RreqHeader::SetId(uint32_t id)
-{
-    m_requestID = id;
-}
-
-void
-RreqHeader::SetDstSeqNo(uint32_t s)
-{
-    m_dstSeqNo = s;
-}
-
-void
-RreqHeader::SetOriginSeqNo(uint32_t s)
-{
-    m_originSeqNo = s;
-}
-
-void
-RreqHeader::SetHopCount(uint32_t h)
-{
-    m_hopCount = h;
-}
-
-void
-RreqHeader::IncrementHopCount()
-{
-    m_hopCount++;
-}
-
-Ipv4Address
-RreqHeader::GetDst() const
-{
-    return m_dst;
-}
-
-Ipv4Address
-RreqHeader::GetOrigin() const
-{
-    return m_origin;
-}
-
-uint32_t
-RreqHeader::GetId() const
-{
-    return m_requestID;
-}
-
-uint32_t
-RreqHeader::GetDstSeqNo() const
-{
-    return m_dstSeqNo;
-}
-
-uint32_t
-RreqHeader::GetOriginSeqNo() const
-{
-    return m_originSeqNo;
-}
-
-uint32_t
-RreqHeader::GetHopCount() const
-{
-    return m_hopCount;
-}
+// ===========================================================================
+// RrepHeader — single hop list, stored in m_hopList
+// ===========================================================================
 
 RrepHeader::RrepHeader()
     : m_dst(),
@@ -272,7 +216,7 @@ RrepHeader::RrepHeader()
       m_origin(),
       m_hopCount(0),
       m_lifeTime(Seconds(0)),
-      m_pathList()
+      m_hopList()           // ← single source of truth
 {
 }
 
@@ -293,30 +237,56 @@ RrepHeader::GetInstanceTypeId() const
 }
 
 void
+RrepHeader::AddHop(Ipv4Address a)
+{
+    m_hopList.push_back(a);
+}
+
+const std::vector<Ipv4Address>&
+RrepHeader::GetHopList() const
+{
+    return m_hopList;
+}
+
+// Compatibility wrappers — remove once all call sites use AddHop/GetHopList
+void
+RrepHeader::AddPathNode(Ipv4Address a)
+{
+    m_hopList.push_back(a);
+}
+
+std::vector<Ipv4Address>
+RrepHeader::GetPathList() const
+{
+    return m_hopList;
+}
+
+void
 RrepHeader::Print(std::ostream& os) const
 {
-    os << "RREP dst=" << m_dst << " dstSeq=" << m_dstSeqNo << " origin=" << m_origin
-       << " hops=" << m_hopCount << " lifetime=" << m_lifeTime.GetMilliSeconds()
-       << "ms pathNodes=" << m_pathList.size();
+    os << "RREP dst=" << m_dst << " dstSeq=" << m_dstSeqNo
+       << " origin=" << m_origin << " hops=" << m_hopCount
+       << " lifetime=" << m_lifeTime.GetMilliSeconds() << "ms"
+       << " pathNodes=" << m_hopList.size();
 }
 
 uint32_t
 RrepHeader::GetSerializedSize() const
 {
-    return 20 + static_cast<uint32_t>(m_pathList.size()) * 4;
+    return 20 + static_cast<uint32_t>(m_hopList.size()) * 4;
 }
 
 void
 RrepHeader::Serialize(Buffer::Iterator i) const
 {
-    i.WriteU8(static_cast<uint8_t>(m_pathList.size()));
+    i.WriteU8(static_cast<uint8_t>(m_hopList.size()));
     i.WriteU8(0);
     i.WriteHtonU16(static_cast<uint16_t>(m_hopCount));
     WriteTo(i, m_dst);
     i.WriteHtonU32(m_dstSeqNo);
     WriteTo(i, m_origin);
     i.WriteHtonU32(static_cast<uint32_t>(m_lifeTime.GetMilliSeconds()));
-    for (const auto& addr : m_pathList)
+    for (const auto& addr : m_hopList)
     {
         WriteTo(i, addr);
     }
@@ -334,95 +304,34 @@ RrepHeader::Deserialize(Buffer::Iterator start)
     ReadFrom(i, m_origin);
     m_lifeTime = MilliSeconds(i.ReadNtohU32());
 
-    m_pathList.clear();
-    m_pathList.reserve(pathCount);
+    m_hopList.clear();
+    m_hopList.reserve(pathCount);
     for (uint8_t k = 0; k < pathCount; ++k)
     {
         Ipv4Address addr;
         ReadFrom(i, addr);
-        m_pathList.push_back(addr);
+        m_hopList.push_back(addr);
     }
 
     return i.GetDistanceFrom(start);
 }
 
-void
-RrepHeader::SetDst(Ipv4Address a)
-{
-    m_dst = a;
-}
+void RrepHeader::SetDst(Ipv4Address a)          { m_dst = a; }
+void RrepHeader::SetOrigin(Ipv4Address a)       { m_origin = a; }
+void RrepHeader::SetDstSeqNo(uint32_t s)        { m_dstSeqNo = s; }
+void RrepHeader::SetHopCount(uint32_t h)        { m_hopCount = h; }
+void RrepHeader::IncrementHopCount()            { m_hopCount++; }
+void RrepHeader::SetLifeTime(Time t)            { m_lifeTime = t; }
 
-void
-RrepHeader::SetOrigin(Ipv4Address a)
-{
-    m_origin = a;
-}
+Ipv4Address RrepHeader::GetDst() const          { return m_dst; }
+Ipv4Address RrepHeader::GetOrigin() const       { return m_origin; }
+uint32_t    RrepHeader::GetDstSeqNo() const     { return m_dstSeqNo; }
+uint32_t    RrepHeader::GetHopCount() const     { return m_hopCount; }
+Time        RrepHeader::GetLifeTime() const     { return m_lifeTime; }
 
-void
-RrepHeader::SetDstSeqNo(uint32_t s)
-{
-    m_dstSeqNo = s;
-}
-
-void
-RrepHeader::SetHopCount(uint32_t h)
-{
-    m_hopCount = h;
-}
-
-void
-RrepHeader::IncrementHopCount()
-{
-    m_hopCount++;
-}
-
-void
-RrepHeader::SetLifeTime(Time t)
-{
-    m_lifeTime = t;
-}
-
-void
-RrepHeader::AddPathNode(Ipv4Address a)
-{
-    m_pathList.push_back(a);
-}
-
-Ipv4Address
-RrepHeader::GetDst() const
-{
-    return m_dst;
-}
-
-Ipv4Address
-RrepHeader::GetOrigin() const
-{
-    return m_origin;
-}
-
-uint32_t
-RrepHeader::GetDstSeqNo() const
-{
-    return m_dstSeqNo;
-}
-
-uint32_t
-RrepHeader::GetHopCount() const
-{
-    return m_hopCount;
-}
-
-Time
-RrepHeader::GetLifeTime() const
-{
-    return m_lifeTime;
-}
-
-std::vector<Ipv4Address>
-RrepHeader::GetPathList() const
-{
-    return m_pathList;
-}
+// ===========================================================================
+// RerrHeader — unchanged, correct as-is
+// ===========================================================================
 
 RerrHeader::RerrHeader()
     : m_unreachable()
@@ -510,17 +419,8 @@ RerrHeader::RemoveUnreachableNode(Ipv4Address dst, uint32_t& seqNo)
     return false;
 }
 
-bool
-RerrHeader::IsEmpty() const
-{
-    return m_unreachable.empty();
-}
-
-uint32_t
-RerrHeader::GetDestCount() const
-{
-    return static_cast<uint32_t>(m_unreachable.size());
-}
+bool     RerrHeader::IsEmpty() const      { return m_unreachable.empty(); }
+uint32_t RerrHeader::GetDestCount() const { return static_cast<uint32_t>(m_unreachable.size()); }
 
 const std::vector<std::pair<Ipv4Address, uint32_t>>&
 RerrHeader::GetUnreachableNodes() const

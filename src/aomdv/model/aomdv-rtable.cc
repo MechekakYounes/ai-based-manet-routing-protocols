@@ -9,6 +9,8 @@
 #include "ns3/ipv4-address.h"     
 #include "ns3/energy-source.h"
 
+#include <cmath>
+#include <unordered_map>
 namespace ns3
 {
 namespace aomdv
@@ -40,10 +42,10 @@ RoutingTableEntry::SetSeqNo(uint32_t s)
 {
     m_seqNo = s;
 }
+/*
 
-bool
-RoutingTableEntry::AddPath(Ipv4Address nextHop, uint32_t hopCount, Time expire)
-{
+bool RoutingTableEntry::AddPath(Ipv4Address nextHop, uint32_t hopCount, Time expire)
+{   
     if (m_paths.empty())
     {
         m_advertisedHopCount = hopCount;
@@ -73,27 +75,152 @@ RoutingTableEntry::AddPath(Ipv4Address nextHop, uint32_t hopCount, Time expire)
     }
     return true;
 }
-static double EnergyFractionOfAddress (Ipv4Address addr)
+*/
+bool
+RoutingTableEntry::AddPath (Ipv4Address nextHop,
+                            uint32_t    hopCount,
+                            Time        expire,
+                            const std::vector<Ipv4Address>& hops)
 {
-    // Resolve IPv4 -> Node. NodeList scan; costly, but works without
-    // any map. Cache it if you use this in a long simulation.
-    Ptr<Node> node = nullptr;
-    for (uint32_t i = 0; i < NodeList::GetNNodes(); ++i)
+    if (m_paths.empty ())
     {
-        Ptr<Node> n    = NodeList::GetNode(i);
-        Ptr<Ipv4> ipv4 = n->GetObject<Ipv4>();
-        if (!ipv4) continue;
-        for (uint32_t j = 0; j < ipv4->GetNInterfaces(); ++j)
-            for (uint32_t k = 0; k < ipv4->GetNAddresses(j); ++k)
-                if (ipv4->GetAddress(j, k).GetLocal() == addr)
-                {
-                    node = n; goto done;
-                }
+        m_advertisedHopCount = hopCount;
     }
-    done:
-    if (!node) return 1.0;                          // unknown -> don't penalize
-    Ptr<EnergySource> src = node->GetObject<EnergySource>();
-    return src ? src->GetEnergyFraction() : 1.0;   // in [0,1]
+    else if (hopCount > m_advertisedHopCount + 2)
+    {
+        NS_LOG_DEBUG ("AOMDV rejected path via " << nextHop
+                      << " hopCount=" << hopCount
+                      << " advertisedHopCount=" << m_advertisedHopCount);
+        return false;
+    }
+
+    for (auto& p : m_paths)
+    {
+        if (p.nextHop == nextHop)
+        {
+            p.hopCount   = hopCount;
+            p.expireTime = expire;
+            p.valid      = true;
+            if (!hops.empty ())
+                p.hops = hops;          // ← refresh hop list
+            return true;
+        }
+    }
+
+    AomdvPath p (nextHop, hopCount, expire);
+    p.valid = true;
+
+    if (hops.empty ())
+        p.hops.push_back (nextHop);
+    else
+        p.hops = hops;
+
+    m_paths.push_back (p);              // ← ONE insertion only (emplace_back removed)
+
+    if (hopCount > m_advertisedHopCount)
+        m_advertisedHopCount = hopCount;
+
+    return true;
+}
+/*
+static const std::unordered_map<uint32_t, Ptr<Node>>&
+NodeMap ()
+{
+    static std::unordered_map<uint32_t, Ptr<Node>> map;
+    if (map.empty ())
+    {
+        for (uint32_t i = 0; i < NodeList::GetNNodes (); ++i)
+        {
+            Ptr<Node>  node = NodeList::GetNode (i);
+            Ptr<Ipv4>  ipv4 = node->GetObject<Ipv4> ();
+            if (!ipv4) continue;
+            for (uint32_t j = 0; j < ipv4->GetNInterfaces (); ++j)
+                for (uint32_t k = 0; k < ipv4->GetNAddresses (j); ++k)
+                {
+                    Ipv4Address a = ipv4->GetAddress (j, k).GetLocal ();
+                    if (a.IsAny () || a.IsBroadcast () || a.IsMulticast ())
+                        continue;
+                    map[a.Get ()] = node;
+                }
+        }
+    }
+    return map;
+}
+*/
+
+static const std::unordered_map<uint32_t, Ptr<Node>>&
+NodeMap ()
+{
+    static bool built = false;
+    static std::unordered_map<uint32_t, Ptr<Node>> map;
+    if (!built)
+    {
+        for (uint32_t i = 0; i < NodeList::GetNNodes (); ++i)
+        {
+            Ptr<Node> node = NodeList::GetNode (i);
+            Ptr<Ipv4> ipv4 = node->GetObject<Ipv4> ();
+            if (!ipv4) continue;
+            for (uint32_t j = 1; j < ipv4->GetNInterfaces (); ++j)   // j=1 skips loopback
+                for (uint32_t k = 0; k < ipv4->GetNAddresses (j); ++k)
+                {
+                    Ipv4Address a = ipv4->GetAddress (j, k).GetLocal ();
+                    if (a.IsAny () || a.IsBroadcast () || a.IsMulticast ())
+                        continue;
+                    map[a.Get ()] = node;
+                }
+        }
+        built = true;
+    }
+    return map;
+}
+
+double EnergyFractionOfAddress (Ipv4Address addr)
+{
+    const auto& map = NodeMap ();
+    auto it = map.find (addr.Get ());
+    if (it == map.end ()) return 1.0;
+
+    Ptr<ns3::energy::EnergySource> src = it->second->GetObject<ns3::energy::EnergySource> ();
+    if (!src) return 1.0;
+
+    double f = src->GetEnergyFraction ();
+    if (std::isnan (f) || f < 0.0) f = 0.0;    // NaN/negative → treat as depleted
+    if (f > 1.0)                   f = 1.0;    // over 1 shouldn't happen; clamp
+
+    return f;
+}
+void
+RoutingTable::PrintWithEnergy (Ptr<OutputStreamWrapper> stream) const
+{
+    std::ostream* os = stream->GetStream ();
+    *os << "\n===== AOMDV paths + energies at t="
+        << Simulator::Now ().GetSeconds () << " s =====\n";
+
+    for (const auto& [dst, entry] : m_ipv4AddressEntry)
+    {
+        *os << "Dest " << dst << ":\n";
+        auto paths = entry.GetAllPaths ();
+        if (paths.empty ())
+        {
+            *os << "  (no valid paths)\n";
+            continue;
+        }
+        for (const auto& p : paths)
+        {
+            double minE = 1.0;
+            *os << "  via " << p.nextHop
+                << "  hops=" << p.hopCount
+                << "  nodes: ";
+            for (const auto& h : p.hops)
+            {
+                double e = EnergyFractionOfAddress (h);
+                minE = std::min (minE, e);
+                *os << h << "(" << (e * 100.0) << "%) ";
+            }
+            *os << " -> bottleneck=" << (minE * 100.0) << "%\n";
+        }
+    }
+    *os << "\n";
 }
 /*
 bool RoutingTableEntry::GetBestPath(AomdvPath& best) const
@@ -115,25 +242,41 @@ bool RoutingTableEntry::GetBestPath(AomdvPath& best) const
     return found;
 }
 */
-bool RoutingTableEntry::GetBestPath (AomdvPath& best) const
+bool
+RoutingTableEntry::GetBestPath (AomdvPath& best) const
 {
-    bool   found = false;
+    bool found = false;
     for (const auto& p : m_paths)
     {
-        if (!p.valid || Simulator::Now() >= p.expireTime)
+        if (!p.valid || Simulator::Now () >= p.expireTime)
             continue;
 
-        double energy = std::numeric_limits<double>::max();
+        double energy = 1.0;
         for (const auto& hop : p.hops)
-            energy = std::min(energy, EnergyFractionOfAddress(hop));
+            energy = std::min (energy, EnergyFractionOfAddress (hop));
+            NS_LOG_DEBUG ("GetBestPath: candidate via " << p.nextHop
+              << " hopCount=" << p.hopCount
+              << " p.hops.size()=" << p.hops.size()
+              << " bottleneck=" << (energy * 100.0) << "%");
 
-        if (!found || energy > best.minEnergyFraction)   // reuse field for the metric
+        NS_LOG_DEBUG ("GetBestPath: candidate via " << p.nextHop
+                      << " hops=" << p.hopCount
+                      << " bottleneck=" << (energy * 100.0) << "%"
+                      << (found && energy > best.minEnergyFraction ? "  ← new best" : ""));
+
+        if (!found || energy > best.minEnergyFraction)
         {
             best = p;
-            best.minEnergyFraction = energy;             // record for next comparison
+            best.minEnergyFraction = energy;
             found = true;
         }
     }
+
+    NS_LOG_DEBUG ("GetBestPath: selected via "
+                  << (found ? best.nextHop : Ipv4Address ("0.0.0.0"))
+                  << " bottleneck="
+                  << (found ? best.minEnergyFraction * 100.0 : 0.0) << "%");
+
     return found;
 }
 
@@ -278,7 +421,7 @@ RoutingTable::InvalidateRoute(Ipv4Address dst, uint32_t seqNo)
     return true;
 }
 
-void
+/*void
 RoutingTable::Print(Ptr<OutputStreamWrapper> stream) const
 {
     *stream->GetStream() << "\nAOMDV Routing Table\nDestination\tSeqNo\tPaths\n";
@@ -295,6 +438,11 @@ RoutingTable::Print(Ptr<OutputStreamWrapper> stream) const
         }
     }
 }
-
+*/
+void
+RoutingTable::Print (Ptr<OutputStreamWrapper> stream) const
+{
+    PrintWithEnergy (stream);   // was: the original tabular print
+}
 } // namespace aomdv
 } // namespace ns3

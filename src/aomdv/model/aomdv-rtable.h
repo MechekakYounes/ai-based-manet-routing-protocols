@@ -22,6 +22,8 @@ struct AomdvPath
     Ipv4Address nextHop;
     uint32_t hopCount;
     Time expireTime;
+    std::vector<Ipv4Address>  hops;
+    double minEnergyFraction = 1.0;
     bool valid;
 
     AomdvPath(Ipv4Address nh, uint32_t hc, Time exp)
@@ -42,7 +44,7 @@ class RoutingTableEntry
     uint32_t GetSeqNo() const;
     void SetSeqNo(uint32_t s);
 
-    bool AddPath(Ipv4Address nextHop, uint32_t hopCount, Time expire);
+    bool AddPath(Ipv4Address nextHop, uint32_t hopCount, Time expire,const std::vector<Ipv4Address>& hops = {});
     bool GetBestPath(AomdvPath& path) const;
     std::list<AomdvPath> GetAllPaths() const;
     bool Purge();
@@ -68,6 +70,7 @@ class RoutingTable
     bool Update(RoutingTableEntry& entry);
     void Purge();
     void Print(Ptr<OutputStreamWrapper> stream) const;
+    void PrintWithEnergy (Ptr<OutputStreamWrapper> stream) const;
 
     std::vector<std::pair<Ipv4Address, uint32_t>> InvalidateRoutesWithNextHop(Ipv4Address brokenNextHop);
     bool InvalidateRoute(Ipv4Address dst, uint32_t seqNo);
